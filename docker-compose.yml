@@ -3,19 +3,20 @@ services:
   app:
     build: .
     ports:
-      - "8080:8080"
+      - "3000:3000"
     environment:
-      - PORT=8080
-      - DATABASE_URL=mongodb://mongo:27017/song-hub-db
+      - PORT=3000
+      - DATABASE_URL=mongodb://mongo_db:27017/song-hub-db
     depends_on:
-      - mongo
+      - mongo_db
 
-  mongo:
-    image: mongo:6.0
+  mongo_db:
+    container_name: songhub_database_container
+    image: mongo:5.0.9
     ports:
       - "27017:27017"
     volumes:
-      - mongo-data:/data/db
+      - mongo_db:/data/db
 
 volumes:
-  mongo-data:
+  mongo_db:
