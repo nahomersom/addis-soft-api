@@ -2,7 +2,6 @@ const express = require('express');
 const SongModel = require('../models/song-model');
 const { validateSong } = require("../validation/song-validation");
 const router = express.Router();
-module.exports = router;
 
 
 
@@ -141,3 +140,4 @@ router.get('/songs/statistics',async (req, res) => {
         res.send({message: error.message})
     }
 })
+module.exports = router;
