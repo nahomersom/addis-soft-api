@@ -71,7 +71,7 @@ const buildRequestBody = (appointmentId, applicant) => ({
     {
       personId: 0,
       ...applicant,
-      gender: 0,
+      gender: applicant.gender,
       nationalityId: 1,
       height: "",
       eyeColor: "",
