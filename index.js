@@ -132,94 +132,90 @@ app.post('/submit-applicants', async (req, res) => {
     return res.status(400).json({ error: 'Invalid applicant data (max 5 allowed)' });
   }
 
-  const results = [];
+ const results = [];
 
-  for (let i = 0; i < applicants.length; i++) {
-    const applicant = applicants[i];
-    const fullName = `${applicant.firstName} ${applicant.middleName} ${applicant.lastName}`;
-    let attempt = 0;
+for (let i = 0; i < applicants.length; i++) {
+  const applicant = applicants[i];
+  const fullName = `${applicant.firstName} ${applicant.middleName} ${applicant.lastName}`;
+  let attempt = 0;
+  const logs = [];
 
-    console.log(`📋 Processing ${fullName}`);
+  logs.push(`📋 Processing ${fullName}`);
 
-    while (true) {
-      attempt++;
-      console.log(`🟡 Attempt ${attempt} - Fetching appointment for ${fullName}...`);
+  while (attempt < 5) {
+    attempt++;
+    logs.push(`🟡 Attempt ${attempt} - Fetching appointment...`);
 
-      try {
-        const fetchRes = await axios.post(fetchURL, {
-          id: 0,
-          isUrgent: true,
-          RequestTypeId: 2,
-          OfficeId: 24,
-          ProcessDays: 2
-        }, { headers });
+    try {
+      const fetchRes = await axios.post(fetchURL, {
+        id: 0,
+        isUrgent: true,
+        RequestTypeId: 2,
+        OfficeId: 24,
+        ProcessDays: 2
+      }, { headers });
 
-        if (fetchRes.status !== 200) {
-          const wait = fetchRes.status === 429 ? RETRY_429_DELAY : RETRY_DELAY;
-          console.log(`⛔ ${fullName} - ${fetchRes.status} Error: ${fetchRes.data?.message || 'Unknown'} | Retrying in ${wait / 1000}s...`);
-          await new Promise(res => setTimeout(res, wait));
-          continue;
-        }
+      const baseId = fetchRes.data?.appointmentResponses?.[0]?.id;
+      if (!baseId) {
+        logs.push(`❌ No appointment ID. Retrying...`);
+        await new Promise(res => setTimeout(res, RETRY_DELAY));
+        continue;
+      }
 
-        const baseId = fetchRes.data?.appointmentResponses?.[0]?.id;
-        if (!baseId) {
-          console.log(`❌ No appointment ID found for ${fullName}. Retrying...`);
-          await new Promise(res => setTimeout(res, RETRY_DELAY));
-          continue;
-        }
+      for (let offset = 0; offset < MAX_ID_ATTEMPTS; offset++) {
+        const tryId = baseId + offset;
+        const submitBody = buildRequestBody(tryId, applicant);
 
-        console.log(`🆔 Appointment ID fetched for ${fullName}: ${baseId}`);
+        const submitRes = await axios.post(submitURL, submitBody, { headers });
+        const reqId = submitRes.data?.serviceResponseList?.[0]?.requestId;
 
-        for (let offset = 0; offset < MAX_ID_ATTEMPTS; offset++) {
-          const tryId = baseId + offset;
-          const submitBody = buildRequestBody(tryId, applicant);
+        if (submitRes.status === 200 && reqId) {
+          logs.push(`✅ Reserved ID ${tryId}`);
+          const paymentBody = buildPaymentBody(applicant, reqId);
+          const paymentRes = await axios.post(paymentURL, paymentBody, { headers });
 
-          const submitRes = await axios.post(submitURL, submitBody, { headers });
-
-          const msg = submitRes.data?.message || '';
-          const reqId = submitRes.data?.serviceResponseList?.[0]?.requestId;
-
-          if (submitRes.status === 200 && reqId) {
-            console.log(`📦 SubmitResponse for ${fullName} [ID ${tryId}]:\n`, JSON.stringify(submitRes.data, null, 2));
-
-            const paymentBody = buildPaymentBody(applicant, reqId);
-            const paymentRes = await axios.post(paymentURL, paymentBody, { headers });
-
-            if (paymentRes.status === 200) {
-              console.log(`💰 Payment succeeded for ${fullName}, trace: ${paymentRes.data?.traceNumber}`);
-              console.log(`📦 PaymentResponse:\n`, JSON.stringify(paymentRes.data, null, 2));
-            } else {
-              console.log(`💥 Payment failed for ${fullName} (status: ${paymentRes.status})`);
-            }
-
-            results.push({
-              fullName,
-              appointmentId: tryId,
-              submitResponse: submitRes.data,
-              paymentResponse: paymentRes.data,
-              traceNumber: paymentRes.data?.traceNumber
-            });
-
-            break;
-          } else if (msg.toLowerCase().includes("already selected")) {
-            console.log(`❗ ID ${tryId} already taken for ${fullName}. Trying next...`);
+          if (paymentRes.status === 200) {
+            logs.push(`💰 Payment success. Trace: ${paymentRes.data?.traceNumber}`);
           } else {
-            console.log(`🔁 ID ${tryId} failed for ${fullName} (${msg})`);
+            logs.push(`💥 Payment failed. Status: ${paymentRes.status}`);
           }
 
-          await new Promise(res => setTimeout(res, 500));
+          results.push({
+            fullName,
+            appointmentId: tryId,
+            logs,
+            submitResponse: submitRes.data,
+            paymentResponse: paymentRes.data
+          });
+
+          break;
+        } else {
+          logs.push(`⚠️ Submit failed: ${submitRes.data?.message || 'Unknown error'}`);
         }
 
-        break;
-
-      } catch (err) {
-        console.log(`💥 ${fullName} error: ${err.message}`);
-        await new Promise(res => setTimeout(res, RETRY_DELAY));
+        await new Promise(res => setTimeout(res, 500));
       }
-    }
 
-    console.log(`✅ Done processing ${fullName}\n`);
+      break;
+
+    } catch (err) {
+      logs.push(`💥 Error: ${err.message}`);
+      await new Promise(res => setTimeout(res, RETRY_DELAY));
+    }
   }
+
+  if (attempt >= 5) {
+    logs.push(`⛔ Max retries reached for ${fullName}`);
+    results.push({
+      fullName,
+      logs,
+      error: 'Max retry limit reached'
+    });
+  }
+}
+
+res.json({ results });
+
 
   res.json({ results });
 });
