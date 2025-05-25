@@ -199,7 +199,7 @@ for (let i = 0; i < applicants.length; i++) {
       break;
 
     } catch (err) {
-      logs.push(`💥 Error: ${err} ${err.message}`);
+      logs.push(`💥 Errors: ${err} ${err.message}`);
       await new Promise(res => setTimeout(res, RETRY_DELAY));
     }
   }
