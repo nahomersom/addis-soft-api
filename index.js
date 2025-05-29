@@ -259,31 +259,71 @@ const headers = {
   'Sec-Ch-Ua-Mobile': '?0',
   'Sec-Ch-Ua-Platform': '"Windows"'
 };
-const userAgents = [
-  // Chrome (Windows)
-  'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/121.0.0.0 Safari/537.36',
-  'Mozilla/5.0 (Windows NT 10.0; WOW64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
-  
-  // Chrome (macOS)
-  'Mozilla/5.0 (Macintosh; Intel Mac OS X 13_5_1) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/121.0.0.0 Safari/537.36',
-  
-  // Firefox (Windows)
-  'Mozilla/5.0 (Windows NT 10.0; Win64; x64; rv:109.0) Gecko/20100101 Firefox/121.0',
-  
-  // Safari (macOS)
-  'Mozilla/5.0 (Macintosh; Intel Mac OS X 13_5_1) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/16.5 Safari/605.1.15',
-  
-  // Edge (Windows)
-  'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/121.0.0.0 Safari/537.36 Edg/121.0.0.0',
-  
-  // Mobile (Android)
-  'Mozilla/5.0 (Linux; Android 13; SM-S901U) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/121.0.0.0 Mobile Safari/537.36',
-  
-  // Mobile (iPhone)
-  'Mozilla/5.0 (iPhone; CPU iPhone OS 16_6 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/16.5 Mobile/15E148 Safari/604.1'
+const mobileProfiles = [
+  {
+    name: 'iPhone 14 - Safari',
+    userAgent: 'Mozilla/5.0 (iPhone; CPU iPhone OS 16_6 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/16.6 Mobile/15E148 Safari/604.1',
+    platform: 'iPhone',
+    secChUaPlatform: '"iOS"'
+  },
+  {
+    name: 'Samsung Galaxy S23 - Chrome',
+    userAgent: 'Mozilla/5.0 (Linux; Android 13; SM-S918B) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/121.0.0.0 Mobile Safari/537.36',
+    platform: 'Android',
+    secChUaPlatform: '"Android"'
+  },
+  {
+    name: 'Pixel 7 - Chrome',
+    userAgent: 'Mozilla/5.0 (Linux; Android 13; Pixel 7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.6099.199 Mobile Safari/537.36',
+    platform: 'Android',
+    secChUaPlatform: '"Android"'
+  },
+  {
+    name: 'Huawei P40 - Chrome',
+    userAgent: 'Mozilla/5.0 (Linux; Android 12; HUAWEI P40) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Mobile Safari/537.36',
+    platform: 'Android',
+    secChUaPlatform: '"Android"'
+  },
+  {
+    name: 'OnePlus 11 - Chrome',
+    userAgent: 'Mozilla/5.0 (Linux; Android 13; ONEPLUS CPH2447) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/119.0.6045.134 Mobile Safari/537.36',
+    platform: 'Android',
+    secChUaPlatform: '"Android"'
+  },
+  {
+    name: 'Samsung A52 - Samsung Internet',
+    userAgent: 'Mozilla/5.0 (Linux; Android 13; SAMSUNG SM-A525F) AppleWebKit/537.36 (KHTML, like Gecko) SamsungBrowser/22.0 Chrome/110.0.5481.77 Mobile Safari/537.36',
+    platform: 'Android',
+    secChUaPlatform: '"Android"'
+  },
+  {
+    name: 'iPhone SE (3rd Gen) - Safari',
+    userAgent: 'Mozilla/5.0 (iPhone; CPU iPhone OS 15_6 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/15.6 Mobile/15E148 Safari/604.1',
+    platform: 'iPhone',
+    secChUaPlatform: '"iOS"'
+  },
+  {
+    name: 'Xiaomi Redmi Note 11 - Chrome',
+    userAgent: 'Mozilla/5.0 (Linux; Android 12; Redmi Note 11) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/118.0.5993.90 Mobile Safari/537.36',
+    platform: 'Android',
+    secChUaPlatform: '"Android"'
+  },
+  {
+    name: 'Motorola Edge 30 - Chrome',
+    userAgent: 'Mozilla/5.0 (Linux; Android 12; motorola edge 30) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.6099.199 Mobile Safari/537.36',
+    platform: 'Android',
+    secChUaPlatform: '"Android"'
+  },
+  {
+    name: 'Google Pixel 5 - Firefox',
+    userAgent: 'Mozilla/5.0 (Android 12; Mobile; rv:109.0) Gecko/109.0 Firefox/109.0',
+    platform: 'Android',
+    secChUaPlatform: '"Android"'
+  }
 ];
-function getRandomUserAgent() {
-  return userAgents[Math.floor(Math.random() * userAgents.length)];
+
+function getMobileProfile(index) {
+  return mobileProfiles[index % mobileProfiles.length];
 }
 
 app.use(cors());
@@ -305,7 +345,7 @@ const buildRequestBody = (appointmentId, applicant) => ({
     {
       personId: 0,
       ...applicant,
-      gender: 0,
+      gender: applicant.gender,
       nationalityId: 1,
       height: "",
       eyeColor: "",
@@ -372,7 +412,23 @@ app.post('/submit-applicants', async (req, res) => {
     const applicant = applicants[i];
     const fullName = `${applicant.firstName} ${applicant.middleName} ${applicant.lastName}`;
     let attempt = 0;
+ // 🔐 Bind one User-Agent for this applicant
+  const profile = getMobileProfile(workerId - 1); // 0-indexed
 
+  // 🔧 Generate headers for this applicant
+  function buildHeaders() {
+    return {
+      'Content-Type': 'application/json',
+      'Origin': 'https://www.ethiopianpassportservices.gov.et',
+      'User-Agent': profile.userAgent,
+      'Accept': 'application/json, text/plain, */*',
+      'Accept-Language': 'en-US,en;q=0.9',
+      'Referer': 'https://www.ethiopianpassportservices.gov.et/',
+      'Sec-Ch-Ua': '"Not A(Brand";v="99", "Google Chrome";v="121", "Chromium";v="121"',
+      'Sec-Ch-Ua-Mobile': '?1',
+      'Sec-Ch-Ua-Platform': profile.secChUaPlatform
+    };
+  }
     console.log(`📋 Processing ${fullName}`);
 
     while (true) {
@@ -386,7 +442,7 @@ app.post('/submit-applicants', async (req, res) => {
           RequestTypeId: 2,
           OfficeId: 24,
           ProcessDays: 2
-        }, { headers });
+        }, { headers: buildHeaders(), });
 
         if (fetchRes.status !== 200) {
           const wait = fetchRes.status === 429 ? RETRY_429_DELAY : RETRY_DELAY;
@@ -411,7 +467,7 @@ for (let offset = 0; offset < MAX_ID_ATTEMPTS; offset++) {
   const submitBody = buildRequestBody(tryId, applicant);
 
   submitPromises.push(
-    axios.post(submitURL, submitBody, { headers }).then(submitRes => {
+    axios.post(submitURL, submitBody, { headers: buildHeaders(), }).then(submitRes => {
       const msg = submitRes.data?.message || '';
       const reqId = submitRes.data?.serviceResponseList?.[0]?.requestId;
 
@@ -433,7 +489,7 @@ if (successful) {
   console.log(`✅ Successfully reserved ID ${tryId} for ${fullName}`);
 
   const paymentBody = buildPaymentBody(applicant, reqId);
-  const paymentRes = await axios.post(paymentURL, paymentBody, { headers });
+  const paymentRes = await axios.post(paymentURL, paymentBody, { headers: buildHeaders(), });
 
   results.push({
     fullName,
