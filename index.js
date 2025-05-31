@@ -317,7 +317,7 @@ const buildRequestBody = (appointmentId, applicant) => ({
       employeeID: "",
       applicationNumber: "",
       organizationID: "",
-      isUnder18: false,
+      isUnder18: applicant.isUnder18 ?? false,
       isAdoption: false,
       passportNumber: "",
       isDatacorrected: false,
