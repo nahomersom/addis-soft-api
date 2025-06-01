@@ -288,7 +288,7 @@ function getRandomUserAgent() {
 
 app.use(cors());
 app.use(express.json());
-
+const multer = require('multer');
 const buildRequestBody = (appointmentId, applicant) => ({
   requestId: 0,
   requestMode: 1,
@@ -357,6 +357,145 @@ const buildPaymentBody = (applicant, requestId) => ({
   Channel: "Mobile",
   PaymentOptionsId: 13,
   requestId: requestId
+});
+const FormData = require('form-data');
+app.use(express.json());
+
+const upload = multer({ dest: 'temp_uploads/' });
+
+const BASE_API = 'https://ethiopianpassportapi.ethiopianairlines.com';
+
+const fs = require('fs');
+
+
+
+
+async function uploadAttachment(personRequestId, type, filePath) {
+  const form = new FormData();
+
+  // The order matters here!
+  form.append('personRequestId', personRequestId.toString());
+  form.append(type.toString(), fs.createReadStream(filePath), {
+    filename: type === '10' ? 'birth.jpg' : 'id.jpg', // force name
+    contentType: 'image/jpeg'
+  });
+
+  const headers = {
+    ...form.getHeaders(),
+    'Origin': 'https://www.ethiopianpassportservices.gov.et',
+    'Referer': 'https://www.ethiopianpassportservices.gov.et/',
+    'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64)',
+    'Accept': 'application/json, text/plain, */*',
+    // If you captured a cookie or Bearer token from Postman, add:
+    // 'Cookie': '.AspNetCore.Session=...',
+    // 'Authorization': 'Bearer ...'
+  };
+
+  try {
+    const response = await axios.post(
+      'https://ethiopianpassportapiu.ethiopianairlines.com/Request/api/V1.0/RequestAttachments/UploadAttachment',
+      form,
+      {
+        headers,
+        maxContentLength: Infinity,
+        maxBodyLength: Infinity,
+      }
+    );
+
+    console.log(`✅ Upload success: type ${type}`, response.data);
+  } catch (err) {
+    const error = err.response?.data || err.message;
+    console.error(`❌ Upload failed for type ${type}:`, error);
+  }
+}
+
+// ✅ Then upload like this:
+async function uploadAttachments(personRequestId, birthPath, idPath) {
+  if (birthPath) await uploadAttachment(personRequestId, '10', birthPath);
+  if (idPath) await uploadAttachment(personRequestId, '11', idPath);
+}
+
+
+
+
+// Handle attachments: applicationNumber, birth (optional), id (optional)
+app.post(
+  '/upload-attachments',
+  upload.fields([
+    { name: 'birth', maxCount: 1 },
+    { name: 'id', maxCount: 1 }
+  ]),
+  async (req, res) => {
+    try {
+      const { applicationNumber } = req.body;
+
+      if (!applicationNumber) {
+        return res.status(400).json({ error: 'Missing applicationNumber' });
+      }
+
+      const { requestPersonId, fullName } = await fetchPersonRequestId(applicationNumber);
+
+      const result = {
+        applicationNumber,
+        fullName,
+        requestPersonId,
+        uploaded: []
+      };
+ 
+
+      const birthFile = req.files?.birth?.[0]?.path || null;
+      const idFile = req.files?.id?.[0]?.path || null;
+
+      if (!birthFile && !idFile) {
+        return res.status(400).json({ error: 'No valid files (birth or id) provided' });
+      }
+
+
+      // ⬇️ Upload both at once (birth or id or both)
+      await uploadAttachments(requestPersonId, birthFile, idFile);
+
+      if (birthFile) result.uploaded.push('birth');
+      if (idFile) result.uploaded.push('id');
+
+      // Cleanup temp uploads
+      Object.values(req.files).flat().forEach(file => fs.unlinkSync(file.path));
+
+      res.json(result);
+    } catch (err) {
+      console.error('💥 Upload error:', err);
+      res.status(500).json({ error: err.message });
+    }
+  }
+);
+async function fetchPersonRequestId(applicationNumber) {
+  const url = `${BASE_API}/Request/api/V1.0/Request/GetRequestsByApplicationNumber?applicationNumber=${applicationNumber}`;
+  const res = await axios.get(url, {
+    headers: {
+      'Origin': 'https://www.ethiopianpassportservices.gov.et',
+      'Referer': 'https://www.ethiopianpassportservices.gov.et/',
+      'User-Agent': 'Mozilla/5.0'
+    }
+  });
+
+  const person = res?.data?.serviceRequest?.personResponses;
+  if (!person?.requestPersonId) {
+    throw new Error(`No person found for applicationNumber ${applicationNumber}`);
+  }
+
+  return {
+    requestPersonId: person.requestPersonId,
+    fullName: `${person.firstName} ${person.middleName} ${person.lastName}`
+  };
+}
+app.get('/applicant-info/:applicationNumber', async (req, res) => {
+  try {
+    const applicationNumber = req.params.applicationNumber;
+    const { requestPersonId, fullName } = await fetchPersonRequestId(applicationNumber);
+    res.json({ applicationNumber, fullName, requestPersonId });
+  } catch (err) {
+    console.log('error issssssssss',err);
+    res.status(404).json({ error: 'Applicant not found' });
+  }
 });
 
 app.post('/submit-applicants', async (req, res) => {
