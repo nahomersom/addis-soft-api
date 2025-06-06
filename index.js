@@ -403,18 +403,32 @@ async function uploadAttachment(personRequestId, type, filePath) {
     );
 
     console.log(`✅ Upload success: type ${type}`, response.data);
+    return { success: true };
   } catch (err) {
     const error = err.response?.data || err.message;
     console.error(`❌ Upload failed for type ${type}:`, error);
+     return { success: false, error };
   }
 }
 
 // ✅ Then upload like this:
 async function uploadAttachments(personRequestId, birthPath, idPath) {
-  if (birthPath) await uploadAttachment(personRequestId, '10', birthPath);
-  if (idPath) await uploadAttachment(personRequestId, '11', idPath);
-}
+  const results = [];
 
+  if (birthPath) {
+    const birthResult = await uploadAttachment(personRequestId, '10', birthPath);
+    if (!birthResult.success) throw new Error(`Birth upload failed: ${birthResult.error}`);
+    results.push('birth');
+  }
+
+  if (idPath) {
+    const idResult = await uploadAttachment(personRequestId, '11', idPath);
+    if (!idResult.success) throw new Error(`ID upload failed: ${idResult.error}`);
+    results.push('id');
+  }
+
+  return results;
+}
 
 
 
@@ -446,16 +460,19 @@ app.post(
       const birthFile = req.files?.birth?.[0]?.path || null;
       const idFile = req.files?.id?.[0]?.path || null;
 
-      if (!birthFile && !idFile) {
-        return res.status(400).json({ error: 'No valid files (birth or id) provided' });
-      }
+   if (!birthFile || !idFile) {
+  return res.status(400).json({ error: 'Both birth and ID files are required.' });
+}
 
 
       // ⬇️ Upload both at once (birth or id or both)
-      await uploadAttachments(requestPersonId, birthFile, idFile);
+   try {
+  const uploaded = await uploadAttachments(requestPersonId, birthFile, idFile);
+  result.uploaded = uploaded;
+} catch (err) {
+  return res.status(500).json({ error: err.message || 'Upload failed' });
+}
 
-      if (birthFile) result.uploaded.push('birth');
-      if (idFile) result.uploaded.push('id');
 
       // Cleanup temp uploads
       Object.values(req.files).flat().forEach(file => fs.unlinkSync(file.path));
