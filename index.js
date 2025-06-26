@@ -84,9 +84,13 @@ async function makeRequestWithRetry(url, data, options = {}) {
         data,
         headers: options.headers || getRandomHeaders(),
         timeout: CONFIG.REQUEST_TIMEOUT,
-        validateStatus: (status) => status < 500 // Don't throw for 429
+        validateStatus: () => true // Don't throw for any status code
       });
       
+      if (!response) {
+        throw new Error('No response received');
+      }
+
       if (response.status === 429) {
         rateLimitCount++;
         last429Time = Date.now();
@@ -99,23 +103,98 @@ async function makeRequestWithRetry(url, data, options = {}) {
         continue;
       }
       
-      return response;
+      // Only return if we got a successful response with data
+      if (response.data) {
+        return response;
+      } else {
+        throw new Error('Response received but no data');
+      }
     } catch (error) {
-      if (attempt >= CONFIG.MAX_RETRIES) throw error;
+      console.error(`Request attempt ${attempt} failed:`, error.message);
+      if (attempt >= CONFIG.MAX_RETRIES) {
+        throw error;
+      }
       
       const delay = error.response?.status === 429 
         ? CONFIG.RETRY_429_DELAY 
         : CONFIG.RETRY_DELAY * Math.pow(2, attempt);
       
-      console.log(`⏳ Attempt ${attempt} failed - Retrying in ${delay/1000}s`);
+      console.log(`⏳ Retrying in ${delay/1000}s`);
       await new Promise(resolve => setTimeout(resolve, delay));
     }
   }
 }
 
-// Request body builders (same as before)
-const buildRequestBody = (appointmentId, applicant) => ({ /* ... */ });
-const buildPaymentBody = (applicant, requestId) => ({ /* ... */ });
+// Request body builders
+const buildRequestBody = (appointmentId, applicant) => ({
+  requestId: 0,
+  requestMode: 1,
+  processDays: 2,
+  officeId: 24,
+  deliverySiteId: 1,
+  requestTypeId: 2,
+  appointmentIds: [appointmentId],
+  userName: "",
+  deliveryDate: "",
+  status: 0,
+  confirmationNumber: "",
+  applicants: [
+    {
+      personId: 0,
+      ...applicant,
+      gender: applicant.gender,
+      nationalityId: 1,
+      height: "",
+      eyeColor: "",
+      hairColor: "Black",
+      occupationId: null,
+      birthPlace: applicant.birthPlace,
+      birthCertificateId: "",
+      photoPath: "",
+      employeeID: "",
+      applicationNumber: "",
+      organizationID: "",
+      isUnder18: false,
+      isAdoption: false,
+      passportNumber: "",
+      isDatacorrected: false,
+      passportPageId: 1,
+      correctionType: 0,
+      maritalStatus: 0,
+      email: "",
+      requestReason: 0,
+      address: {
+        personId: 0,
+        addressId: 0,
+        city: "Addis Ababa",
+        region: "Addis Ababa",
+        state: "",
+        zone: "",
+        wereda: "",
+        kebele: "",
+        street: "",
+        houseNo: "",
+        poBox: "",
+        requestPlace: ""
+      },
+      familyRequests: []
+    }
+  ]
+});
+
+const buildPaymentBody = (applicant, requestId) => ({
+  FirstName: applicant.firstName,
+  LastName: applicant.lastName,
+  Email: "",
+  Phone: applicant.phoneNumber,
+  Amount: 20000,
+  Currency: "ETB",
+  City: "Addis Ababa",
+  Country: "ET",
+  Channel: "Mobile",
+  PaymentOptionsId: 13,
+  requestId
+});
 
 // File upload endpoint
 app.post('/upload-attachments', upload.fields([
@@ -135,49 +214,63 @@ app.post('/upload-attachments', upload.fields([
       { method: 'get' }
     );
 
-    const person = personInfo.data?.serviceRequest?.personResponses;
-    if (!person?.requestPersonId) {
-      return res.status(404).json({ error: 'Applicant not found' });
+    if (!personInfo || !personInfo.data || !personInfo.data.serviceRequest || !personInfo.data.serviceRequest.personResponses) {
+      return res.status(404).json({ error: 'Applicant not found or invalid response' });
+    }
+
+    const person = personInfo.data.serviceRequest.personResponses;
+    if (!person.requestPersonId) {
+      return res.status(404).json({ error: 'No requestPersonId found' });
     }
 
     // Upload files
     const uploaded = [];
     const files = req.files || {};
     
-    if (files.birth) {
-      const form = new FormData();
-      form.append('personRequestId', person.requestPersonId.toString());
-      form.append('10', fs.createReadStream(files.birth[0].path), {
-        filename: 'birth.jpg',
-        contentType: 'image/jpeg'
+    try {
+      if (files.birth) {
+        const form = new FormData();
+        form.append('personRequestId', person.requestPersonId.toString());
+        form.append('10', fs.createReadStream(files.birth[0].path), {
+          filename: 'birth.jpg',
+          contentType: 'image/jpeg'
+        });
+
+        const uploadRes = await makeRequestWithRetry(
+          uploadURL,
+          form,
+          { headers: form.getHeaders() }
+        );
+        uploaded.push('birth');
+      }
+
+      if (files.id) {
+        const form = new FormData();
+        form.append('personRequestId', person.requestPersonId.toString());
+        form.append('11', fs.createReadStream(files.id[0].path), {
+          filename: 'id.jpg',
+          contentType: 'image/jpeg'
+        });
+
+        const uploadRes = await makeRequestWithRetry(
+          uploadURL,
+          form,
+          { headers: form.getHeaders() }
+        );
+        uploaded.push('id');
+      }
+    } finally {
+      // Cleanup temp files whether upload succeeds or fails
+      Object.values(files).flat().forEach(file => {
+        if (file && file.path) {
+          try {
+            fs.unlinkSync(file.path);
+          } catch (err) {
+            console.error('Error deleting temp file:', err);
+          }
+        }
       });
-
-      const uploadRes = await makeRequestWithRetry(
-        uploadURL,
-        form,
-        { headers: form.getHeaders() }
-      );
-      uploaded.push('birth');
     }
-
-    if (files.id) {
-      const form = new FormData();
-      form.append('personRequestId', person.requestPersonId.toString());
-      form.append('11', fs.createReadStream(files.id[0].path), {
-        filename: 'id.jpg',
-        contentType: 'image/jpeg'
-      });
-
-      const uploadRes = await makeRequestWithRetry(
-        uploadURL,
-        form,
-        { headers: form.getHeaders() }
-      );
-      uploaded.push('id');
-    }
-
-    // Cleanup temp files
-    Object.values(files).flat().forEach(file => fs.unlinkSync(file.path));
 
     res.json({
       applicationNumber,
@@ -187,7 +280,10 @@ app.post('/upload-attachments', upload.fields([
     });
   } catch (error) {
     console.error('Upload error:', error);
-    res.status(500).json({ error: error.message });
+    res.status(500).json({ 
+      error: error.message,
+      details: error.response?.data || 'No additional details'
+    });
   }
 });
 
@@ -216,7 +312,11 @@ app.post('/submit-applicants', async (req, res) => {
           ProcessDays: 2
         });
         
-        const baseId = fetchRes.data?.appointmentResponses?.[0]?.id;
+        if (!fetchRes || !fetchRes.data || !fetchRes.data.appointmentResponses || !fetchRes.data.appointmentResponses[0]) {
+          throw new Error('Invalid response when fetching appointment ID');
+        }
+        
+        const baseId = fetchRes.data.appointmentResponses[0].id;
         if (!baseId) {
           throw new Error('No appointment ID returned');
         }
@@ -225,15 +325,19 @@ app.post('/submit-applicants', async (req, res) => {
         let reservedId, requestId;
         for (let offset = 0; offset < CONFIG.MAX_ID_ATTEMPTS; offset++) {
           const tryId = baseId + offset;
-          const submitRes = await makeRequestWithRetry(
-            submitURL,
-            buildRequestBody(tryId, applicant)
-          );
-          
-          if (submitRes.status === 200 && submitRes.data?.serviceResponseList?.[0]?.requestId) {
-            reservedId = tryId;
-            requestId = submitRes.data.serviceResponseList[0].requestId;
-            break;
+          try {
+            const submitRes = await makeRequestWithRetry(
+              submitURL,
+              buildRequestBody(tryId, applicant)
+            );
+            
+            if (submitRes && submitRes.status === 200 && submitRes.data && submitRes.data.serviceResponseList && submitRes.data.serviceResponseList[0]) {
+              reservedId = tryId;
+              requestId = submitRes.data.serviceResponseList[0].requestId;
+              break;
+            }
+          } catch (error) {
+            console.log(`Failed to reserve ID ${tryId}:`, error.message);
           }
         }
         
@@ -246,6 +350,10 @@ app.post('/submit-applicants', async (req, res) => {
           paymentURL,
           buildPaymentBody(applicant, requestId)
         );
+        
+        if (!paymentRes || !paymentRes.data) {
+          throw new Error('Invalid payment response');
+        }
         
         result.success = true;
         result.appointmentId = reservedId;
@@ -262,7 +370,10 @@ app.post('/submit-applicants', async (req, res) => {
     res.json({ results });
   } catch (error) {
     console.error('Submission error:', error);
-    res.status(500).json({ error: error.message });
+    res.status(500).json({ 
+      error: error.message,
+      details: error.response?.data || 'No additional details'
+    });
   }
 });
 
