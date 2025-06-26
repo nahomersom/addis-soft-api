@@ -1,131 +1,294 @@
+
+// require('dotenv').config();
+// const routes = require('./routes/routes');
+// const express = require('express');
+// const cors = require('cors')
+// const mongoose = require('mongoose');
+// const app = express();
+// app.use(express.json());
+// app.use(cors())
+// //storing the connection string
+// const mongoString = process.env.DATABASE_URL;
+
+// mongoose.connect(mongoString);
+// const database = mongoose.connection;
+
+// database.on('error', (error) => {
+//     console.log(error)
+// })
+
+// database.once('connected', () => {
+//     console.log('Database Connected');
+// })
+
+
+
+
+
+// //base endpoint and the contents of the routes
+// app.use('/api', routes)
+// const port = process.env.PORT || 8000
+// app.listen(port, () => {
+//     console.log(`Server Started at ${port}`)
+// })
+// const express = require('express');
+// const cors = require('cors');
+// const axios = require('axios');
+
+// const app = express();
+// const PORT = process.env.PORT || 3000;
+
+// const RETRY_DELAY = 2000;
+// const RETRY_429_DELAY = 10000;
+// const MAX_ID_ATTEMPTS = 5;
+// const MAX_APPLICANTS = 5;
+
+// const fetchURL = 'https://ethiopianpassportapiu.ethiopianairlines.com/Schedule/api/V1.0/Schedule/SubmitAppointment';
+// const submitURL = 'https://ethiopianpassportapiu.ethiopianairlines.com/Request/api/V1.0/Request/SubmitRequest';
+// const paymentURL = 'https://ethiopianpassportapi.ethiopianairlines.com/Payment/api/V1.0/Payment/OrderRequest';
+
+// const headers = {
+//   'Content-Type': 'application/json',
+//   'Origin': 'https://www.ethiopianpassportservices.gov.et'
+// };
+
+// app.use(cors());
+// app.use(express.json());
+
+// const buildRequestBody = (appointmentId, applicant) => ({
+//   requestId: 0,
+//   requestMode: 1,
+//   processDays: 2,
+//   officeId: 24,
+//   deliverySiteId: 1,
+//   requestTypeId: 2,
+//   appointmentIds: [appointmentId],
+//   userName: "",
+//   deliveryDate: "",
+//   status: 0,
+//   confirmationNumber: "",
+//   applicants: [
+//     {
+//       personId: 0,
+//       ...applicant,
+//       gender: applicant.gender,
+//       nationalityId: 1,
+//       height: "",
+//       eyeColor: "",
+//       hairColor: "Black",
+//       occupationId: null,
+//       birthPlace: applicant.birthPlace,
+//       birthCertificateId: "",
+//       photoPath: "",
+//       employeeID: "",
+//       applicationNumber: "",
+//       organizationID: "",
+//       isUnder18: false,
+//       isAdoption: false,
+//       passportNumber: "",
+//       isDatacorrected: false,
+//       passportPageId: 1,
+//       correctionType: 0,
+//       maritalStatus: 0,
+//       email: "",
+//       requestReason: 0,
+//       address: {
+//         personId: 0,
+//         addressId: 0,
+//         city: "Addis Ababa",
+//         region: "Addis Ababa",
+//         state: "",
+//         zone: "",
+//         wereda: "",
+//         kebele: "",
+//         street: "",
+//         houseNo: "",
+//         poBox: "",
+//         requestPlace: ""
+//       },
+//       familyRequests: []
+//     }
+//   ]
+// });
+
+// const buildPaymentBody = (applicant, requestId) => ({
+//   FirstName: applicant.firstName,
+//   LastName: applicant.lastName,
+//   Email: "",
+//   Phone: applicant.phoneNumber,
+//   Amount: 20000,
+//   Currency: "ETB",
+//   City: "Addis Ababa",
+//   Country: "ET",
+//   Channel: "Mobile",
+//   PaymentOptionsId: 13,
+//   requestId: requestId
+// });
+
+// app.post('/submit-applicants', async (req, res) => {
+//   const applicants = req.body;
+
+//   if (!Array.isArray(applicants) || applicants.length > MAX_APPLICANTS) {
+//     return res.status(400).json({ error: 'Invalid applicant data (max 5 allowed)' });
+//   }
+
+//  const results = [];
+
+// for (let i = 0; i < applicants.length; i++) {
+//   const applicant = applicants[i];
+//   const fullName = `${applicant.firstName} ${applicant.middleName} ${applicant.lastName}`;
+//   let attempt = 0;
+//   const logs = [];
+
+//   logs.push(`📋 Processing ${fullName}`);
+
+//   while (attempt < 5) {
+//     attempt++;
+//     logs.push(`🟡 Attempt ${attempt} - Fetching appointment...`);
+
+//     try {
+//       const fetchRes = await axios.post(fetchURL, {
+//         id: 0,
+//         isUrgent: true,
+//         RequestTypeId: 2,
+//         OfficeId: 24,
+//         ProcessDays: 2
+//       }, { headers });
+
+//       const baseId = fetchRes.data?.appointmentResponses?.[0]?.id;
+//       if (!baseId) {
+//         logs.push(`❌ No appointment ID. Retrying...`);
+//         await new Promise(res => setTimeout(res, RETRY_DELAY));
+//         continue;
+//       }
+
+//       for (let offset = 0; offset < MAX_ID_ATTEMPTS; offset++) {
+//         const tryId = baseId + offset;
+//         const submitBody = buildRequestBody(tryId, applicant);
+
+//         const submitRes = await axios.post(submitURL, submitBody, { headers });
+//         const reqId = submitRes.data?.serviceResponseList?.[0]?.requestId;
+
+//         if (submitRes.status === 200 && reqId) {
+//           logs.push(`✅ Reserved ID ${tryId}`);
+//           const paymentBody = buildPaymentBody(applicant, reqId);
+//           const paymentRes = await axios.post(paymentURL, paymentBody, { headers });
+
+//           if (paymentRes.status === 200) {
+//             logs.push(`💰 Payment success. Trace: ${paymentRes.data?.traceNumber}`);
+//           } else {
+//             logs.push(`💥 Payment failed. Status: ${paymentRes.status}`);
+//           }
+
+//           results.push({
+//             fullName,
+//             appointmentId: tryId,
+//             logs,
+//             submitResponse: submitRes.data,
+//             paymentResponse: paymentRes.data
+//           });
+
+//           break;
+//         } else {
+//           logs.push(`⚠️ Submit failed: ${submitRes.data?.message || 'Unknown error'}`);
+//         }
+
+//         await new Promise(res => setTimeout(res, 500));
+//       }
+
+//       break;
+
+//     } catch (err) {
+//       logs.push(`💥 Errors: ${err} ${err.message}`);
+//       await new Promise(res => setTimeout(res, RETRY_DELAY));
+//     }
+//   }
+
+//   if (attempt >= 5) {
+//     logs.push(`⛔ Max retries reached for ${fullName}`);
+//     results.push({
+//       fullName,
+//       logs,
+//       error: 'Max retry limit reached'
+//     });
+//   }
+// }
+
+// res.json({ results });
+
+
+//   res.json({ results });
+// });
+
+// app.listen(PORT, () => {
+//   console.log(`🚀 API running at http://localhost:${PORT}`);
+// });
+
+
+
+
+
+
+
+
+
 const express = require('express');
 const cors = require('cors');
-const axios = require('axios');
-const multer = require('multer');
-const FormData = require('form-data');
-const fs = require('fs');
+const axios = require('axios');est
 
 const app = express();
 const PORT = process.env.PORT || 3000;
 
-// Configuration
-const CONFIG = {
-  RETRY_DELAY: 2000,
-  RETRY_429_DELAY: 10000,
-  MAX_ID_ATTEMPTS: 5,
-  MAX_APPLICANTS: 5,
-  MAX_RETRIES: 3,
-  REQUEST_TIMEOUT: 8000,
-  RATE_LIMIT_COOLDOWN: 60000 // 1 minute cooldown after multiple 429s
-};
+const RETRY_DELAY = 2000;
+const RETRY_429_DELAY = 10000;
+const MAX_ID_ATTEMPTS = 5;
+const MAX_APPLICANTS = 5;
 
-// API Endpoints
-const API_BASE = 'https://ethiopianpassportapiu.ethiopianairlines.com';
-const fetchURL = `${API_BASE}/Schedule/api/V1.0/Schedule/SubmitAppointment`;
-const submitURL = `${API_BASE}/Request/api/V1.0/Request/SubmitRequest`;
+const fetchURL = 'https://ethiopianpassportapiu.ethiopianairlines.com/Schedule/api/V1.0/Schedule/SubmitAppointment';
+const submitURL = 'https://ethiopianpassportapiu.ethiopianairlines.com/Request/api/V1.0/Request/SubmitRequest';
 const paymentURL = 'https://ethiopianpassportapi.ethiopianairlines.com/Payment/api/V1.0/Payment/OrderRequest';
-const uploadURL = `${API_BASE}/Request/api/V1.0/RequestAttachments/UploadAttachment`;
 
-// User Agent Rotation
+const headers = {
+   'Content-Type': 'application/json',
+  'Origin': 'https://www.ethiopianpassportservices.gov.et',
+  'User-Agent':   'Mozilla/5.0 (iPhone; CPU iPhone OS 16_6 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/16.5 Mobile/15E148 Safari/604.1',
+  'Accept': 'application/json, text/plain, */*',
+  'Accept-Language': 'en-US,en;q=0.9',
+  'Referer': 'https://www.ethiopianpassportservices.gov.et/',
+  'Sec-Ch-Ua': '"Not A(Brand";v="99", "Google Chrome";v="121", "Chromium";v="121"',
+  'Sec-Ch-Ua-Mobile': '?0',
+  'Sec-Ch-Ua-Platform': '"Windows"'
+};
 const userAgents = [
+  // Chrome (Windows)
   'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/121.0.0.0 Safari/537.36',
+  'Mozilla/5.0 (Windows NT 10.0; WOW64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
+  
+  // Chrome (macOS)
   'Mozilla/5.0 (Macintosh; Intel Mac OS X 13_5_1) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/121.0.0.0 Safari/537.36',
+  
+  // Firefox (Windows)
   'Mozilla/5.0 (Windows NT 10.0; Win64; x64; rv:109.0) Gecko/20100101 Firefox/121.0',
+  
+  // Safari (macOS)
+  'Mozilla/5.0 (Macintosh; Intel Mac OS X 13_5_1) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/16.5 Safari/605.1.15',
+  
+  // Edge (Windows)
+  'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/121.0.0.0 Safari/537.36 Edg/121.0.0.0',
+  
+  // Mobile (Android)
+  'Mozilla/5.0 (Linux; Android 13; SM-S901U) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/121.0.0.0 Mobile Safari/537.36',
+  
+  // Mobile (iPhone)
   'Mozilla/5.0 (iPhone; CPU iPhone OS 16_6 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/16.5 Mobile/15E148 Safari/604.1'
 ];
-
-function getRandomHeaders() {
-  return {
-    'Content-Type': 'application/json',
-    'Origin': 'https://www.ethiopianpassportservices.gov.et',
-    'User-Agent': userAgents[Math.floor(Math.random() * userAgents.length)],
-    'Accept': 'application/json, text/plain, */*',
-    'Accept-Language': 'en-US,en;q=0.9',
-    'Referer': 'https://www.ethiopianpassportservices.gov.et/',
-    'Sec-Ch-Ua': '"Not A(Brand";v="99", "Google Chrome";v="121", "Chromium";v="121"',
-    'Sec-Ch-Ua-Mobile': '?0',
-    'Sec-Ch-Ua-Platform': '"Windows"',
-    'X-Forwarded-For': `${Math.floor(Math.random() * 255)}.${Math.floor(Math.random() * 255)}.${Math.floor(Math.random() * 255)}.${Math.floor(Math.random() * 255)}`
-  };
+function getRandomUserAgent() {
+  return userAgents[Math.floor(Math.random() * userAgents.length)];
 }
 
-// Middleware
 app.use(cors());
 app.use(express.json());
-
-// File upload setup
-const upload = multer({ dest: 'temp_uploads/' });
-
-// Helper functions
-async function makeRequestWithRetry(url, data, options = {}) {
-  let attempt = 0;
-  let last429Time = 0;
-  let rateLimitCount = 0;
-  
-  while (attempt < CONFIG.MAX_RETRIES) {
-    attempt++;
-    try {
-      // Add jitter to avoid synchronized requests
-      const jitter = Math.random() * 500;
-      await new Promise(resolve => setTimeout(resolve, jitter));
-      
-      // Check if we need to cool down
-      const now = Date.now();
-      if (rateLimitCount >= 2 && now - last429Time < CONFIG.RATE_LIMIT_COOLDOWN) {
-        const waitTime = CONFIG.RATE_LIMIT_COOLDOWN - (now - last429Time);
-        console.log(`🚨 Rate limit cooldown - waiting ${waitTime/1000}s`);
-        await new Promise(resolve => setTimeout(resolve, waitTime));
-        rateLimitCount = 0;
-      }
-      
-      const response = await axios({
-        method: options.method || 'post',
-        url,
-        data,
-        headers: options.headers || getRandomHeaders(),
-        timeout: CONFIG.REQUEST_TIMEOUT,
-        validateStatus: () => true // Don't throw for any status code
-      });
-      
-      if (!response) {
-        throw new Error('No response received');
-      }
-
-      if (response.status === 429) {
-        rateLimitCount++;
-        last429Time = Date.now();
-        const retryAfter = response.headers['retry-after'] 
-          ? parseInt(response.headers['retry-after']) * 1000 
-          : CONFIG.RETRY_429_DELAY;
-        
-        console.log(`⚠️ 429 Received - Waiting ${retryAfter/1000}s`);
-        await new Promise(resolve => setTimeout(resolve, retryAfter));
-        continue;
-      }
-      
-      // Only return if we got a successful response with data
-      if (response.data) {
-        return response;
-      } else {
-        throw new Error('Response received but no data');
-      }
-    } catch (error) {
-      console.error(`Request attempt ${attempt} failed:`, error.message);
-      if (attempt >= CONFIG.MAX_RETRIES) {
-        throw error;
-      }
-      
-      const delay = error.response?.status === 429 
-        ? CONFIG.RETRY_429_DELAY 
-        : CONFIG.RETRY_DELAY * Math.pow(2, attempt);
-      
-      console.log(`⏳ Retrying in ${delay/1000}s`);
-      await new Promise(resolve => setTimeout(resolve, delay));
-    }
-  }
-}
-
-// Request body builders
+const multer = require('multer');
 const buildRequestBody = (appointmentId, applicant) => ({
   requestId: 0,
   requestMode: 1,
@@ -154,7 +317,7 @@ const buildRequestBody = (appointmentId, applicant) => ({
       employeeID: "",
       applicationNumber: "",
       organizationID: "",
-      isUnder18: false,
+      isUnder18: applicant.isUnder18 ?? false,
       isAdoption: false,
       passportNumber: "",
       isDatacorrected: false,
@@ -193,190 +356,269 @@ const buildPaymentBody = (applicant, requestId) => ({
   Country: "ET",
   Channel: "Mobile",
   PaymentOptionsId: 13,
-  requestId
+  requestId: requestId
 });
+const FormData = require('form-data');
+app.use(express.json());
 
-// File upload endpoint
-app.post('/upload-attachments', upload.fields([
-  { name: 'birth', maxCount: 1 },
-  { name: 'id', maxCount: 1 }
-]), async (req, res) => {
+const upload = multer({ dest: 'temp_uploads/' });
+
+const BASE_API = 'https://ethiopianpassportapi.ethiopianairlines.com';
+
+const fs = require('fs');
+
+
+
+
+async function uploadAttachment(personRequestId, type, filePath) {
+  const form = new FormData();
+
+  // The order matters here!
+  form.append('personRequestId', personRequestId.toString());
+  form.append(type.toString(), fs.createReadStream(filePath), {
+    filename: type === '10' ? 'birth.jpg' : 'id.jpg', // force name
+    contentType: 'image/jpeg'
+  });
+
+  const headers = {
+    ...form.getHeaders(),
+    'Origin': 'https://www.ethiopianpassportservices.gov.et',
+    'Referer': 'https://www.ethiopianpassportservices.gov.et/',
+    'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64)',
+    'Accept': 'application/json, text/plain, */*',
+    // If you captured a cookie or Bearer token from Postman, add:
+    // 'Cookie': '.AspNetCore.Session=...',
+    // 'Authorization': 'Bearer ...'
+  };
+
   try {
-    const { applicationNumber } = req.body;
-    if (!applicationNumber) {
-      return res.status(400).json({ error: 'Missing applicationNumber' });
-    }
-
-    // Fetch person request ID
-    const personInfo = await makeRequestWithRetry(
-      `${API_BASE}/Request/api/V1.0/Request/GetRequestsByApplicationNumber?applicationNumber=${applicationNumber}`,
-      null,
-      { method: 'get' }
+    const response = await axios.post(
+      'https://ethiopianpassportapiu.ethiopianairlines.com/Request/api/V1.0/RequestAttachments/UploadAttachment',
+      form,
+      {
+        headers,
+        maxContentLength: Infinity,
+        maxBodyLength: Infinity,
+      }
     );
 
-    if (!personInfo || !personInfo.data || !personInfo.data.serviceRequest || !personInfo.data.serviceRequest.personResponses) {
-      return res.status(404).json({ error: 'Applicant not found or invalid response' });
-    }
+    console.log(`✅ Upload success: type ${type}`, response.data);
+    return { success: true };
+  } catch (err) {
+    const error = err.response?.data || err.message;
+    console.error(`❌ Upload failed for type ${type}:`, error);
+     return { success: false, error };
+  }
+}
 
-    const person = personInfo.data.serviceRequest.personResponses;
-    if (!person.requestPersonId) {
-      return res.status(404).json({ error: 'No requestPersonId found' });
-    }
+// ✅ Then upload like this:
+async function uploadAttachments(personRequestId, birthPath, idPath) {
+  const results = [];
 
-    // Upload files
-    const uploaded = [];
-    const files = req.files || {};
-    
+  if (birthPath) {
+    const birthResult = await uploadAttachment(personRequestId, '10', birthPath);
+    if (!birthResult.success) throw new Error(`Birth upload failed: ${birthResult.error}`);
+    results.push('birth');
+  }
+
+  if (idPath) {
+    const idResult = await uploadAttachment(personRequestId, '11', idPath);
+    if (!idResult.success) throw new Error(`ID upload failed: ${idResult.error}`);
+    results.push('id');
+  }
+
+  return results;
+}
+
+
+
+// Handle attachments: applicationNumber, birth (optional), id (optional)
+app.post(
+  '/upload-attachments',
+  upload.fields([
+    { name: 'birth', maxCount: 1 },
+    { name: 'id', maxCount: 1 }
+  ]),
+  async (req, res) => {
     try {
-      if (files.birth) {
-        const form = new FormData();
-        form.append('personRequestId', person.requestPersonId.toString());
-        form.append('10', fs.createReadStream(files.birth[0].path), {
-          filename: 'birth.jpg',
-          contentType: 'image/jpeg'
-        });
+      const { applicationNumber } = req.body;
 
-        const uploadRes = await makeRequestWithRetry(
-          uploadURL,
-          form,
-          { headers: form.getHeaders() }
-        );
-        uploaded.push('birth');
+      if (!applicationNumber) {
+        return res.status(400).json({ error: 'Missing applicationNumber' });
       }
 
-      if (files.id) {
-        const form = new FormData();
-        form.append('personRequestId', person.requestPersonId.toString());
-        form.append('11', fs.createReadStream(files.id[0].path), {
-          filename: 'id.jpg',
-          contentType: 'image/jpeg'
-        });
+      const { requestPersonId, fullName } = await fetchPersonRequestId(applicationNumber);
 
-        const uploadRes = await makeRequestWithRetry(
-          uploadURL,
-          form,
-          { headers: form.getHeaders() }
-        );
-        uploaded.push('id');
-      }
-    } finally {
-      // Cleanup temp files whether upload succeeds or fails
-      Object.values(files).flat().forEach(file => {
-        if (file && file.path) {
-          try {
-            fs.unlinkSync(file.path);
-          } catch (err) {
-            console.error('Error deleting temp file:', err);
-          }
-        }
-      });
+      const result = {
+        applicationNumber,
+        fullName,
+        requestPersonId,
+        uploaded: []
+      };
+ 
+
+      const birthFile = req.files?.birth?.[0]?.path || null;
+      const idFile = req.files?.id?.[0]?.path || null;
+
+   if (!birthFile || !idFile) {
+  return res.status(400).json({ error: 'Both birth and ID files are required.' });
+}
+
+
+      // ⬇️ Upload both at once (birth or id or both)
+   try {
+  const uploaded = await uploadAttachments(requestPersonId, birthFile, idFile);
+  result.uploaded = uploaded;
+} catch (err) {
+  return res.status(500).json({ error: err.message || 'Upload failed' });
+}
+
+
+      // Cleanup temp uploads
+      Object.values(req.files).flat().forEach(file => fs.unlinkSync(file.path));
+
+      res.json(result);
+    } catch (err) {
+      console.error('💥 Upload error:', err);
+      res.status(500).json({ error: err.message });
     }
+  }
+);
+async function fetchPersonRequestId(applicationNumber) {
+  const url = `${BASE_API}/Request/api/V1.0/Request/GetRequestsByApplicationNumber?applicationNumber=${applicationNumber}`;
+  const res = await axios.get(url, {
+    headers: {
+      'Origin': 'https://www.ethiopianpassportservices.gov.et',
+      'Referer': 'https://www.ethiopianpassportservices.gov.et/',
+      'User-Agent': 'Mozilla/5.0'
+    }
+  });
 
-    res.json({
-      applicationNumber,
-      fullName: `${person.firstName} ${person.middleName} ${person.lastName}`,
-      requestPersonId: person.requestPersonId,
-      uploaded
-    });
-  } catch (error) {
-    console.error('Upload error:', error);
-    res.status(500).json({ 
-      error: error.message,
-      details: error.response?.data || 'No additional details'
-    });
+  const person = res?.data?.serviceRequest?.personResponses;
+  if (!person?.requestPersonId) {
+    throw new Error(`No person found for applicationNumber ${applicationNumber}`);
+  }
+
+  return {
+    requestPersonId: person.requestPersonId,
+    fullName: `${person.firstName} ${person.middleName} ${person.lastName}`
+  };
+}
+app.get('/applicant-info/:applicationNumber', async (req, res) => {
+  try {
+    const applicationNumber = req.params.applicationNumber;
+    const { requestPersonId, fullName } = await fetchPersonRequestId(applicationNumber);
+    res.json({ applicationNumber, fullName, requestPersonId });
+  } catch (err) {
+    console.log('error issssssssss',err);
+    res.status(404).json({ error: 'Applicant not found' });
   }
 });
 
-// Main applicant submission endpoint
 app.post('/submit-applicants', async (req, res) => {
-  try {
-    const applicants = req.body;
-    if (!Array.isArray(applicants) || applicants.length > CONFIG.MAX_APPLICANTS) {
-      return res.status(400).json({ error: `Maximum ${CONFIG.MAX_APPLICANTS} applicants allowed` });
-    }
+  const applicants = req.body;
 
-    const results = [];
-    
-    // Process applicants sequentially to avoid overwhelming the server
-    for (const applicant of applicants) {
-      const fullName = `${applicant.firstName} ${applicant.middleName} ${applicant.lastName}`;
-      const result = { fullName };
-      
+  if (!Array.isArray(applicants) || applicants.length > MAX_APPLICANTS) {
+    return res.status(400).json({ error: 'Invalid applicant data (max 5 allowed)' });
+  }
+
+  const results = [];
+
+  for (let i = 0; i < applicants.length; i++) {
+    const applicant = applicants[i];
+    const fullName = `${applicant.firstName} ${applicant.middleName} ${applicant.lastName}`;
+    let attempt = 0;
+
+    console.log(`📋 Processing ${fullName}`);
+
+    while (true) {
+      attempt++;
+      console.log(`🟡 Attempt ${attempt} - Fetching appointment for ${fullName}...`);
+
       try {
-        // Step 1: Get appointment ID
-        const fetchRes = await makeRequestWithRetry(fetchURL, {
+        const fetchRes = await axios.post(fetchURL, {
           id: 0,
           isUrgent: true,
           RequestTypeId: 2,
           OfficeId: 24,
           ProcessDays: 2
-        });
-        
-        if (!fetchRes || !fetchRes.data || !fetchRes.data.appointmentResponses || !fetchRes.data.appointmentResponses[0]) {
-          throw new Error('Invalid response when fetching appointment ID');
+        }, { headers });
+
+        if (fetchRes.status !== 200) {
+          const wait = fetchRes.status === 429 ? RETRY_429_DELAY : RETRY_DELAY;
+          console.log(`⛔ ${fullName} - ${fetchRes.status} Error: ${fetchRes.data?.message || 'Unknown'} | Retrying in ${wait / 1000}s...`);
+          await new Promise(res => setTimeout(res, wait));
+          continue;
         }
-        
-        const baseId = fetchRes.data.appointmentResponses[0].id;
+
+        const baseId = fetchRes.data?.appointmentResponses?.[0]?.id;
         if (!baseId) {
-          throw new Error('No appointment ID returned');
+          console.log(`❌ No appointment ID found for ${fullName}. Retrying...`);
+          await new Promise(res => setTimeout(res, RETRY_DELAY));
+          continue;
         }
-        
-        // Step 2: Try to reserve an appointment
-        let reservedId, requestId;
-        for (let offset = 0; offset < CONFIG.MAX_ID_ATTEMPTS; offset++) {
-          const tryId = baseId + offset;
-          try {
-            const submitRes = await makeRequestWithRetry(
-              submitURL,
-              buildRequestBody(tryId, applicant)
-            );
-            
-            if (submitRes && submitRes.status === 200 && submitRes.data && submitRes.data.serviceResponseList && submitRes.data.serviceResponseList[0]) {
-              reservedId = tryId;
-              requestId = submitRes.data.serviceResponseList[0].requestId;
-              break;
-            }
-          } catch (error) {
-            console.log(`Failed to reserve ID ${tryId}:`, error.message);
-          }
-        }
-        
-        if (!reservedId) {
-          throw new Error('All appointment attempts failed');
-        }
-        
-        // Step 3: Process payment
-        const paymentRes = await makeRequestWithRetry(
-          paymentURL,
-          buildPaymentBody(applicant, requestId)
-        );
-        
-        if (!paymentRes || !paymentRes.data) {
-          throw new Error('Invalid payment response');
-        }
-        
-        result.success = true;
-        result.appointmentId = reservedId;
-        result.requestId = requestId;
-        result.payment = paymentRes.data;
-      } catch (error) {
-        result.success = false;
-        result.error = error.message;
+
+        console.log(`🆔 Appointment ID fetched for ${fullName}: ${baseId}`);
+
+     const submitPromises = [];
+
+for (let offset = 0; offset < MAX_ID_ATTEMPTS; offset++) {
+  const tryId = baseId + offset;
+  const submitBody = buildRequestBody(tryId, applicant);
+
+  submitPromises.push(
+    axios.post(submitURL, submitBody, { headers }).then(submitRes => {
+      const msg = submitRes.data?.message || '';
+      const reqId = submitRes.data?.serviceResponseList?.[0]?.requestId;
+
+      if (submitRes.status === 200 && reqId) {
+        return { success: true, tryId, submitRes, reqId };
+      } else {
+        return { success: false, tryId, msg };
       }
-      
-      results.push(result);
+    }).catch(err => ({ success: false, tryId, msg: err.message }))
+  );
+}
+
+const resultsSet = await Promise.allSettled(submitPromises);
+
+const successful = resultsSet.find(r => r.status === 'fulfilled' && r.value.success);
+
+if (successful) {
+  const { tryId, submitRes, reqId } = successful.value;
+  console.log(`✅ Successfully reserved ID ${tryId} for ${fullName}`);
+
+  const paymentBody = buildPaymentBody(applicant, reqId);
+  const paymentRes = await axios.post(paymentURL, paymentBody, { headers });
+
+  results.push({
+    fullName,
+    appointmentId: tryId,
+    submitResponse: submitRes.data,
+    paymentResponse: paymentRes.data,
+    traceNumber: paymentRes.data?.traceNumber
+  });
+} else {
+  console.log(`❌ All appointment IDs taken for ${fullName}`);
+}
+
+
+        break;
+
+      } catch (err) {
+        console.log(`💥 ${fullName} error: ${err.message}`);
+        await new Promise(res => setTimeout(res, RETRY_DELAY));
+      }
     }
-    
-    res.json({ results });
-  } catch (error) {
-    console.error('Submission error:', error);
-    res.status(500).json({ 
-      error: error.message,
-      details: error.response?.data || 'No additional details'
-    });
+
+    console.log(`✅ Done processing ${fullName}\n`);
   }
+
+  res.json({ results });
 });
 
 app.listen(PORT, () => {
-  console.log(`🚀 Server running on http://localhost:${PORT}`);
+  console.log(`🚀 API running at http://localhost:${PORT}`);
 });
+
+
