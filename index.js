@@ -164,6 +164,7 @@ app.post('/submit-applicants', async (req, res) => {
     const applicant = applicants[i];
     const profile = getMobileProfile(i);
     const fullName = `${applicant.firstName} ${applicant.middleName} ${applicant.lastName}`;
+
     let attempt = 0;
     let success = false;
 
@@ -223,6 +224,8 @@ app.post('/submit-applicants', async (req, res) => {
 
         const { id: reservedId, res: submitRes } = successful.value;
         const reqId = submitRes.data.serviceResponseList[0].requestId;
+         const requestPersonId = submitRes.data.serviceResponseList[0].requestPersonId;
+
 
         console.log(`🎯 [SUCCESS - ${fullName}] Reserved ID: ${reservedId} Request ID: ${reqId}`);
 
@@ -246,10 +249,12 @@ app.post('/submit-applicants', async (req, res) => {
 
           results.push({
             fullName,
+            requestPersonId,
             appointmentId: reservedId,
             requestId: reqId,
             epNumber,
             trackerNumber,
+            
             status: 'success'
           });
           success = true;
