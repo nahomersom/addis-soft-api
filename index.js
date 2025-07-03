@@ -543,40 +543,60 @@ app.post('/submit-applicants', async (req, res) => {
 
         console.log(`🆔 Appointment ID fetched for ${fullName}: ${baseId}`);
 
-     const submitPromises = [];
+const submitAppointmentId = async (appointmentId) => {
+  try {
+    const submitBody = buildRequestBody(appointmentId, applicant);
 
-for (let offset = 0; offset < MAX_ID_ATTEMPTS; offset++) {
-  const tryId = baseId + offset;
-  const submitBody = buildRequestBody(tryId, applicant);
-
-  submitPromises.push(
-    axios.post(submitURL, submitBody, { headers }).then(submitRes => {
-      const msg = submitRes.data?.message || '';
-      const reqId = submitRes.data?.serviceResponseList?.[0]?.requestId;
-
-      if (submitRes.status === 200 && reqId) {
-        return { success: true, tryId, submitRes, reqId };
-      } else {
-        return { success: false, tryId, msg };
+    const res = await axios.post(submitURL, submitBody, {
+      headers: {
+        ...headers,
+        'User-Agent': getRandomUserAgent()  // randomize per try
       }
-    }).catch(err => ({ success: false, tryId, msg: err.message }))
-  );
-}
+    });
 
-const resultsSet = await Promise.allSettled(submitPromises);
+    const msg = res.data?.message || '';
+    const reqId = res.data?.serviceResponseList?.[0]?.requestId;
 
-const successful = resultsSet.find(r => r.status === 'fulfilled' && r.value.success);
+    if (res.status === 200 && reqId) {
+      return { success: true, appointmentId, submitRes: res, reqId };
+    }
+
+    return { success: false, appointmentId, msg };
+  } catch (err) {
+    return { success: false, appointmentId, msg: err.message };
+  }
+};
+
+// Try IDs in parallel, and stop at the first success
+let successful = null;
+
+await Promise.any(
+  Array.from({ length: MAX_ID_ATTEMPTS }, async (_, offset) => {
+    const tryId = baseId + offset;
+    const result = await submitAppointmentId(tryId);
+
+    if (result.success && !successful) {
+      successful = result;
+    }
+
+    if (!result.success) {
+      console.log(`🔁 ID ${tryId} failed: ${result.msg}`);
+    }
+
+    return result.success ? result : Promise.reject();
+  })
+).catch(() => {}); // handled below
 
 if (successful) {
-  const { tryId, submitRes, reqId } = successful.value;
-  console.log(`✅ Successfully reserved ID ${tryId} for ${fullName}`);
+  const { appointmentId, submitRes, reqId } = successful;
+  console.log(`✅ Successfully reserved ID ${appointmentId} for ${fullName}`);
 
   const paymentBody = buildPaymentBody(applicant, reqId);
   const paymentRes = await axios.post(paymentURL, paymentBody, { headers });
 
   results.push({
     fullName,
-    appointmentId: tryId,
+    appointmentId,
     submitResponse: submitRes.data,
     paymentResponse: paymentRes.data,
     traceNumber: paymentRes.data?.traceNumber
@@ -584,6 +604,7 @@ if (successful) {
 } else {
   console.log(`❌ All appointment IDs taken for ${fullName}`);
 }
+
 
 
         break;
